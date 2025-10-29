@@ -1,9 +1,7 @@
-name: Build WebAssembly and Deploy to Pages
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
 
 permissions:
   contents: read
