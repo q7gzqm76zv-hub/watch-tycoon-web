@@ -1,7 +1,9 @@
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
+name: Build WebAssembly and Deploy to Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,27 +21,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Official emscripten setup action
+      # ✅ Correct Emscripten setup action
       - name: Setup Emscripten
-        uses: emscripten/setup-emsdk@v3
+        uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
 
-      - name: Build (emcc → dist/index.html)
+      - name: Build (C++ -> WebAssembly)
         run: |
-          mkdir -p dist assets
-          # Minimal flags (no SDL_image dependency to avoid header/port issues)
+          mkdir -p dist
+          emcc --version
           emcc main.cpp -O3 \
             -s USE_SDL=2 \
             -s ALLOW_MEMORY_GROWTH=1 \
             -s WASM=1 \
             --shell-file shell.html \
             -o dist/index.html
-          # Copy PWA files
           cp sw.js manifest.webmanifest dist/ || true
-          # Optional icons if you add them later:
-          # cp icon-192.png icon-512.png dist/ || true
-          echo "Build done."
+
+      # ✅ Required for Pages deploy
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
