@@ -35,13 +35,9 @@ jobs:
           cp sw.js dist/ || true
           cp manifest.webmanifest dist/ || true
 
-      - name: Publish to gh-pages branch
-        run: |
-          cd dist
-          git init
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "Deploy to gh-pages"
-          git branch -M gh-pages
-          git push -f https://github.com/${{ github.repository }} gh-pages
+      # ✅ New step: use the official Pages deploy action
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
