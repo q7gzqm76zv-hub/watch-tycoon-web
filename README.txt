@@ -11,4 +11,4 @@ Build your C++ game into a single `index.html` that runs on iPhone/Chrome/Safari
 
 ## iPhone install
 - Open your hosted URL in Safari → Share → **Add to Home Screen**. It saves progress in localStorage.      
- 
+  
