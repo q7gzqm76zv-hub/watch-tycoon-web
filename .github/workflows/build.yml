@@ -21,28 +21,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ✅ Correct Emscripten setup action
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
 
-      - name: Build (C++ -> WebAssembly)
+      - name: Show environment
         run: |
-          mkdir -p dist
+          set -euxo pipefail
           emcc --version
+          ls -la
+          test -f main.cpp
+          test -f shell.html
+          echo "env looks good"
+
+      - name: Build game (C++ -> WebAssembly)
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
           emcc main.cpp -O3 \
             -s USE_SDL=2 \
             -s ALLOW_MEMORY_GROWTH=1 \
             -s WASM=1 \
             --shell-file shell.html \
             -o dist/index.html
-          cp sw.js manifest.webmanifest dist/ || true
 
-      # ✅ Required for Pages deploy
+          # Copy PWA/helper files if you added them
+          if [ -f sw.js ]; then cp sw.js dist/; fi
+          if [ -f manifest.webmanifest ]; then cp manifest.webmanifest dist/; fi
+
+          echo "build finished, dist/ is ready"
+
+      # Configure the repo for GitHub Pages
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # Upload the site content so Pages can serve it
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -53,7 +67,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
