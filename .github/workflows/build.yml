@@ -2,17 +2,13 @@ name: Build WebAssembly and Deploy to Pages
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -26,16 +22,7 @@ jobs:
         with:
           version: latest
 
-      - name: Show environment
-        run: |
-          set -euxo pipefail
-          emcc --version
-          ls -la
-          test -f main.cpp
-          test -f shell.html
-          echo "env looks good"
-
-      - name: Build game (C++ -> WebAssembly)
+      - name: Build WebAssembly game
         run: |
           set -euxo pipefail
           mkdir -p dist
@@ -45,29 +32,16 @@ jobs:
             -s WASM=1 \
             --shell-file shell.html \
             -o dist/index.html
+          cp sw.js dist/ || true
+          cp manifest.webmanifest dist/ || true
 
-          # Copy PWA/helper files if you added them
-          if [ -f sw.js ]; then cp sw.js dist/; fi
-          if [ -f manifest.webmanifest ]; then cp manifest.webmanifest dist/; fi
-
-          echo "build finished, dist/ is ready"
-
-      # Configure the repo for GitHub Pages
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      # Upload the site content so Pages can serve it
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish to gh-pages branch
+        run: |
+          cd dist
+          git init
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Deploy to gh-pages"
+          git branch -M gh-pages
+          git push -f https://github.com/${{ github.repository }} gh-pages
