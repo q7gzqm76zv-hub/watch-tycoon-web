@@ -68,7 +68,18 @@ struct Game {
     win = SDL_CreateWindow("Watch Market Tycoon (Web)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_SHOWN);
     if(!win) return false;
     ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if(!ren) return false;
+if(!ren) {
+    // fallback: try again without vsync
+    ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+}
+if(!ren) {
+    // last fallback: software renderer
+    ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
+}
+if(!ren) {
+    return false;
+}
+SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
     int x=10; int y=90; const char* names[]={"Market","Inventory","Auctions","Telegram","Parts","Map"};
     for(int i=0;i<6;i++){ Button b; b.r={x,y,120,36}; b.label=names[i]; tabs.push_back(b); x+=126; }
