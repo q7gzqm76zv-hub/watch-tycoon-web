@@ -10,6 +10,44 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
+static Game* G = nullptr;
+
+extern "C" void frame(void*){
+    // this replaces the inner while-loop body
+    SDL_Event e;
+    bool running_local = true;
+
+    while(SDL_PollEvent(&e)){
+        if(e.type==SDL_QUIT){
+            running_local = false;
+        }
+        if(e.type==SDL_MOUSEBUTTONDOWN && e.button.button==SDL_BUTTON_LEFT){
+            G->click(e.button.x, e.button.y);
+        }
+        if(e.type==SDL_KEYDOWN){
+            if(e.key.keysym.sym==SDLK_r){ G->refreshMarket(); G->save(); }
+            if(e.key.keysym.sym==SDLK_n){ G->nextDay(); G->save(); }
+            if(e.key.keysym.sym==SDLK_s){ G->save(); }
+            if(e.key.keysym.sym==SDLK_l){ G->load(); }
+        }
+    }
+
+    // draw one frame
+    G->step();
+
+#ifndef __EMSCRIPTEN__
+    if(!running_local){
+        // desktop exit path if ever used
+        G->save();
+        SDL_Quit();
+        exit(0);
+    }
+#endif
+}
 EM_JS(void, js_save, (const char* s), {
   try { localStorage.setItem('wm_save', UTF8ToString(s)); } catch(e) {}
 });
@@ -318,25 +356,45 @@ SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
     SDL_RenderPresent(ren);
   }
 
-  void run(){
+ void run(){
+#ifdef __EMSCRIPTEN__
+    // web: hand control to browser, 60fps-ish
+    emscripten_set_main_loop_arg(frame, nullptr, 0, 1);
+#else
+    // desktop fallback
     bool running=true;
     while(running){
-      SDL_Event e;
-      while(SDL_PollEvent(&e)){
-        if(e.type==SDL_QUIT) running=false;
-        if(e.type==SDL_MOUSEBUTTONDOWN && e.button.button==SDL_BUTTON_LEFT){ click(e.button.x, e.button.y); }
-        if(e.type==SDL_KEYDOWN){
-          if(e.key.keysym.sym==SDLK_r) { refreshMarket(); save(); }
-          if(e.key.keysym.sym==SDLK_n) { nextDay(); save(); }
-          if(e.key.keysym.sym==SDLK_s) { save(); }
-          if(e.key.keysym.sym==SDLK_l) { load(); }
+        SDL_Event e;
+        while(SDL_PollEvent(&e)){
+            if(e.type==SDL_QUIT) running=false;
+            if(e.type==SDL_MOUSEBUTTONDOWN && e.button.button==SDL_BUTTON_LEFT){
+                click(e.button.x, e.button.y);
+            }
+            if(e.type==SDL_KEYDOWN){
+                if(e.key.keysym.sym==SDLK_r){ refreshMarket(); save(); }
+                if(e.key.keysym.sym==SDLK_n){ nextDay(); save(); }
+                if(e.key.keysym.sym==SDLK_s){ save(); }
+                if(e.key.keysym.sym==SDLK_l){ load(); }
+            }
         }
-      }
+        step();
+        SDL_Delay(16);
+    }
+    save();
+#endif
+}
       step();
       SDL_Delay(16);
     }
     save();
   }
 };
+int main(int argc, char** argv){
+    static Game game;
+    G = &game;
+    if(!game.init()) return 1;
+    game.run();
+    return 0;
+}
 
-int main(int argc, char** argv){ Game g; if(!g.init()) return 1; g.run(); return 0; }
+
