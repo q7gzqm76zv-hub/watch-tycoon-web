@@ -36,58 +36,50 @@ public:
     bool init();
     void shutdown();
     void run();
-    void frameOnce();            // one frame of logic+draw
-    void click(int x, int y);    // handle taps
-    void refreshMarket();        // new watches on market
-    void nextDay();              // advance time
+    void step();
+    void click(int x, int y);
+    void refreshMarket();
+    void nextDay();
     void save();
     void load();
 
-    // draw helpers
+private:
     void drawUI();
     void drawMarket();
     void drawInventory();
     void drawMap();
 
-    void step(); // update + draw, called every frame
-
-private:
     SDL_Window* win = nullptr;
     SDL_Renderer* ren = nullptr;
 
-    // game info
     int day = 1;
     int cash = 5000;
     int rep = 1;
     std::string location = "NYC Diamond District";
 
-    // screens
     enum Screen {
         SCREEN_MARKET,
         SCREEN_INVENTORY,
         SCREEN_MAP
     } screen = SCREEN_MARKET;
 
-    // lists
     std::vector<WatchItem> market;
     std::vector<WatchItem> inventory;
 
-    // ui tap boxes
     SDL_Rect tabMarket;
     SDL_Rect tabInv;
     SDL_Rect tabMap;
     SDL_Rect actionNextDay;
     SDL_Rect actionRefresh;
 
-    // simple helper
     void buyWatch(int idx);
 };
 
-// We need a global pointer so emscripten can call into our game every "tick"
+// global so emscripten loop can tick it
 static Game* G = nullptr;
 
 // --------------------
-// Utility random watch generator
+// Random watch generator
 // --------------------
 static WatchItem randomWatch() {
     static const char* brands[] = {
@@ -122,10 +114,31 @@ static WatchItem randomWatch() {
     w.model = models[rand() % (sizeof(models)/sizeof(models[0]))];
     w.note  = notes[rand() % (sizeof(notes)/sizeof(notes[0]))];
     w.condition = 6 + (rand() % 5);        // 6-10
-    w.price = 800 + (rand() % 7500);       // asking
+    w.price = 800 + (rand() % 7500);       // ask
     w.yourCost = 0;
     w.owned = false;
     return w;
+}
+
+// --------------------
+// Draw helpers (super minimal UI)
+// --------------------
+static void fillRect(SDL_Renderer* r, int x,int y,int w,int h,
+                     Uint8 R,Uint8 Gc,Uint8 B,Uint8 A)
+{
+    SDL_Rect box{ x,y,w,h };
+    SDL_SetRenderDrawColor(r,R,Gc,B,A);
+    SDL_RenderFillRect(r,&box);
+}
+
+static void fakeText(SDL_Renderer* r, int x,int y,
+                     const std::string &txt,
+                     Uint8 R,Uint8 Gc,Uint8 B,Uint8 A)
+{
+    // Draw a blocky bar instead of real text (no font lib yet)
+    int w = (int)txt.size() * 6;
+    int h = 10;
+    fillRect(r,x,y,w,h,R,Gc,B,A);
 }
 
 // --------------------
@@ -138,7 +151,6 @@ bool Game::init() {
         return false;
     }
 
-    // fixed logical size for UI layout
     int w = 400;
     int h = 700;
 
@@ -153,34 +165,28 @@ bool Game::init() {
         return false;
     }
 
-    // renderer with fallbacks so iPhone/WebGL doesn't choke
+    // Renderer with fallbacks so iPhone/WebGL doesn't choke
     ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!ren) {
-        ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
-    }
-    if (!ren) {
-        ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
-    }
+    if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
     if (!ren) {
         std::cerr << "CreateRenderer fail: " << SDL_GetError() << "\n";
         return false;
     }
+
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
 
-    // set up clickable tab regions (bottom buttons)
+    // clickable hitboxes
     tabMarket = {  0, h-60, 130, 60 };
     tabInv    = {130, h-60, 140, 60 };
     tabMap    = {270, h-60, 130, 60 };
 
-    // actions at top
     actionNextDay = { w-110, 40, 100, 28 };
     actionRefresh = { w-110, 72, 100, 28 };
 
-    // seed rng
     srand((unsigned)time(NULL));
 
-    // load save if possible
-    load();
+    load(); // try load save
 
     if (market.empty()) {
         refreshMarket();
@@ -205,11 +211,10 @@ void Game::refreshMarket() {
 
 void Game::nextDay() {
     day += 1;
-    // maybe raise rep if you hold nice pieces
+    // tiny rep growth if you're holding stuff
     if (!inventory.empty() && rep < 10) {
         rep += 1;
     }
-    // market rotates
     refreshMarket();
 }
 
@@ -251,7 +256,6 @@ void Game::load() {
     }
 }
 
-// buy from market taps
 void Game::buyWatch(int idx) {
     if (idx < 0 || idx >= (int)market.size()) return;
     WatchItem &w = market[idx];
@@ -260,140 +264,117 @@ void Game::buyWatch(int idx) {
         cash -= w.price;
         w.owned = true;
         w.yourCost = w.price;
-        // move to inventory
         inventory.push_back(w);
     }
 }
 
-// very lo-fi UI rectangles and text-like blocks
-static void drawRect(SDL_Renderer* r, int x,int y,int w,int h,
-                     Uint8 R,Uint8 Gc,Uint8 B,Uint8 A)
-{
-    SDL_Rect box{ x,y,w,h };
-    SDL_SetRenderDrawColor(r,R,Gc,B,A);
-    SDL_RenderFillRect(r,&box);
-}
+// --- drawing HUD and screens ---
 
-static void drawLabel(SDL_Renderer* r, int x,int y,
-                      const std::string &text,
-                      Uint8 R,Uint8 Gc,Uint8 B,Uint8 A)
-{
-    // draw a simple stub box for text (you'll replace with bitmap font later)
-    drawRect(r,x,y, (int)text.size()*6,10, R,Gc,B,A);
-}
-
-// top HUD: money, rep, day, location, buttons
 void Game::drawUI() {
-    // HUD background bar
-    drawRect(ren,0,0,400,110,20,24,32,255);
+    // header bg
+    fillRect(ren,0,0,400,110,20,24,32,255);
 
-    // pseudo-text
-    drawLabel(ren,10,10,"Bankroll: $" + std::to_string(cash),255,255,255,255);
-    drawLabel(ren,10,26,"Rep: " + std::to_string(rep),200,200,255,255);
-    drawLabel(ren,10,42,"Day: " + std::to_string(day),200,255,200,255);
-    drawLabel(ren,10,58,"Loc: " + location,255,200,200,255);
+    fakeText(ren,10,10,"Bankroll: $" + std::to_string(cash),255,255,255,255);
+    fakeText(ren,10,26,"Rep: " + std::to_string(rep),200,200,255,255);
+    fakeText(ren,10,42,"Day: " + std::to_string(day),200,255,200,255);
+    fakeText(ren,10,58,"Loc: " + location,255,200,200,255);
 
-    // next day button
-    drawRect(ren, actionNextDay.x, actionNextDay.y,
+    // Next Day button
+    fillRect(ren, actionNextDay.x, actionNextDay.y,
              actionNextDay.w, actionNextDay.h,
              40,80,40,255);
-    drawLabel(ren, actionNextDay.x+6, actionNextDay.y+8,
-              "Next Day",0,0,0,255);
+    fakeText(ren, actionNextDay.x+6, actionNextDay.y+8,
+             "Next Day",0,0,0,255);
 
-    // refresh button
-    drawRect(ren, actionRefresh.x, actionRefresh.y,
+    // Refresh button
+    fillRect(ren, actionRefresh.x, actionRefresh.y,
              actionRefresh.w, actionRefresh.h,
              80,40,40,255);
-    drawLabel(ren, actionRefresh.x+6, actionRefresh.y+8,
-              "Refresh",0,0,0,255);
+    fakeText(ren, actionRefresh.x+6, actionRefresh.y+8,
+             "Refresh",0,0,0,255);
 }
 
 void Game::drawMarket() {
-    // market panel
-    drawRect(ren,0,110,400,530,18,18,24,255);
+    fillRect(ren,0,110,400,530,18,18,24,255);
 
     int y = 120;
     for (int i=0;i<(int)market.size();i++) {
         WatchItem &w = market[i];
-        // card bg
-        drawRect(ren,10,y,380,70,30,30,40,255);
+        fillRect(ren,10,y,380,70,30,30,40,255);
 
-        // brand/model blocks
-        drawLabel(ren,20,y+10,w.brand + " " + w.model,255,255,255,255);
+        fakeText(ren,20,y+10,w.brand + " " + w.model,255,255,255,255);
+        fakeText(ren,20,y+26,"Ask $" + std::to_string(w.price),
+                 200,255,200,255);
+        fakeText(ren,20,y+42,w.note,
+                 180,180,255,255);
 
-        // price
-        drawLabel(ren,20,y+26,"Ask $" + std::to_string(w.price),200,255,200,255);
-
-        // note
-        drawLabel(ren,20,y+42,w.note,180,180,255,255);
-
-        // tap zone is basically that rect
         y += 80;
     }
 }
 
 void Game::drawInventory() {
-    drawRect(ren,0,110,400,530,24,18,18,255);
+    fillRect(ren,0,110,400,530,24,18,18,255);
 
     int y = 120;
     for (int i=0;i<(int)inventory.size();i++) {
         WatchItem &w = inventory[i];
-        drawRect(ren,10,y,380,70,40,30,30,255);
+        fillRect(ren,10,y,380,70,40,30,30,255);
 
-        drawLabel(ren,20,y+10,w.brand + " " + w.model,255,255,255,255);
-        drawLabel(ren,20,y+26,"Paid $" + std::to_string(w.yourCost),255,255,200,255);
-        drawLabel(ren,20,y+42,"Cond " + std::to_string(w.condition) + "/10",200,200,255,255);
+        fakeText(ren,20,y+10,w.brand + " " + w.model,255,255,255,255);
+        fakeText(ren,20,y+26,"Paid $" + std::to_string(w.yourCost),
+                 255,255,200,255);
+        fakeText(ren,20,y+42,"Cond " + std::to_string(w.condition) + "/10",
+                 200,200,255,255);
 
         y += 80;
     }
 }
 
 void Game::drawMap() {
-    drawRect(ren,0,110,400,530,18,24,18,255);
+    fillRect(ren,0,110,400,530,18,24,18,255);
 
-    // show location choices
-    drawRect(ren,20,140,360,50,60,60,90,255);
-    drawLabel(ren,30,150,"NYC Diamond District",255,255,255,255);
+    fillRect(ren,20,140,360,50,60,60,90,255);
+    fakeText(ren,30,150,"NYC Diamond District",255,255,255,255);
 
-    drawRect(ren,20,210,360,50,60,90,60,255);
-    drawLabel(ren,30,220,"Paris Vintage Arcade",255,255,255,255);
+    fillRect(ren,20,210,360,50,60,90,60,255);
+    fakeText(ren,30,220,"Paris Vintage Arcade",255,255,255,255);
 
-    drawRect(ren,20,280,360,50,90,60,60,255);
-    drawLabel(ren,30,290,"London Hatton Garden",255,255,255,255);
+    fillRect(ren,20,280,360,50,90,60,60,255);
+    fakeText(ren,30,290,"London Hatton Garden",255,255,255,255);
 
-    drawRect(ren,20,350,360,50,90,90,60,255);
-    drawLabel(ren,30,360,"Flea / Telegram / Forums",255,255,255,255);
+    fillRect(ren,20,350,360,50,90,90,60,255);
+    fakeText(ren,30,360,"Flea / Telegram / Forums",255,255,255,255);
 }
 
-// bottom nav bar
+// draw bottom tab buttons
 static void drawTab(SDL_Renderer* r, SDL_Rect rc,
                     const std::string &label,
                     bool active)
 {
     if (active) {
-        drawRect(r,rc.x,rc.y,rc.w,rc.h,60,60,100,255);
+        fillRect(r,rc.x,rc.y,rc.w,rc.h,60,60,100,255);
     } else {
-        drawRect(r,rc.x,rc.y,rc.w,rc.h,30,30,40,255);
+        fillRect(r,rc.x,rc.y,rc.w,rc.h,30,30,40,255);
     }
-    drawLabel(r,rc.x+8,rc.y+25,label,255,255,255,255);
+    fakeText(r,rc.x+8,rc.y+25,label,255,255,255,255);
 }
 
 void Game::step() {
-    // clear bg frame
+    // background
     SDL_SetRenderDrawColor(ren, 11,15,25,255);
     SDL_RenderClear(ren);
 
-    // HUD
+    // header
     drawUI();
 
-    // screen content
+    // middle content
     switch (screen) {
         case SCREEN_MARKET:    drawMarket(); break;
         case SCREEN_INVENTORY: drawInventory(); break;
         case SCREEN_MAP:       drawMap(); break;
     }
 
-    // bottom tabs
+    // bottom nav
     drawTab(ren, tabMarket, "Market",    screen==SCREEN_MARKET);
     drawTab(ren, tabInv,    "Inventory", screen==SCREEN_INVENTORY);
     drawTab(ren, tabMap,    "Map",       screen==SCREEN_MAP);
@@ -402,42 +383,46 @@ void Game::step() {
 }
 
 void Game::click(int x, int y) {
-    // tabs at bottom
-    if (SDL_PointInRect(&SDL_Point{ x,y }, &tabMarket)) {
+    // turn the (x,y) into a real SDL_Point so we can pass a pointer
+    SDL_Point p;
+    p.x = x;
+    p.y = y;
+
+    // Bottom tabs
+    if (SDL_PointInRect(&p, &tabMarket)) {
         screen = SCREEN_MARKET;
         return;
     }
-    if (SDL_PointInRect(&SDL_Point{ x,y }, &tabInv)) {
+    if (SDL_PointInRect(&p, &tabInv)) {
         screen = SCREEN_INVENTORY;
         return;
     }
-    if (SDL_PointInRect(&SDL_Point{ x,y }, &tabMap)) {
+    if (SDL_PointInRect(&p, &tabMap)) {
         screen = SCREEN_MAP;
         return;
     }
 
-    // top buttons
-    if (SDL_PointInRect(&SDL_Point{ x,y }, &actionNextDay)) {
+    // Top buttons
+    if (SDL_PointInRect(&p, &actionNextDay)) {
         nextDay();
         save();
         return;
     }
-    if (SDL_PointInRect(&SDL_Point{ x,y }, &actionRefresh)) {
+    if (SDL_PointInRect(&p, &actionRefresh)) {
         refreshMarket();
         save();
         return;
     }
 
-    // market buy taps:
+    // Buying watches from market
     if (screen == SCREEN_MARKET) {
-        // cards start y=120, height=70 + 10 margin
-        int idx = (y - 120) / 80;
+        int idx = (y - 120) / 80; // each card ~80px tall
         if (idx >=0 && idx < (int)market.size()) {
             buyWatch(idx);
         }
     }
 
-    // change location in map:
+    // Changing location in map
     if (screen == SCREEN_MAP) {
         if (y>140 && y<190) location = "NYC Diamond District";
         else if (y>210 && y<260) location = "Paris Vintage Arcade";
@@ -448,26 +433,28 @@ void Game::click(int x, int y) {
 }
 
 // --------------------
-// Web loop integration
+// Web / native main loop handling
 // --------------------
 
-// The function emscripten calls every frame:
 static void em_frame(void*) {
-    // handle input / events
+    if (!G) return;
+
+    // handle input
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) {
-            if (G) { G->save(); G->shutdown(); }
+            G->save();
+            G->shutdown();
 #ifdef __EMSCRIPTEN__
             emscripten_cancel_main_loop();
 #endif
             return;
         }
-        if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-            if (G) G->click(e.button.x, e.button.y);
+        if (e.type == SDL_MOUSEBUTTONDOWN &&
+            e.button.button == SDL_BUTTON_LEFT) {
+            G->click(e.button.x, e.button.y);
         }
         if (e.type == SDL_KEYDOWN) {
-            if (!G) break;
             if (e.key.keysym.sym == SDLK_r) { G->refreshMarket(); G->save(); }
             if (e.key.keysym.sym == SDLK_n) { G->nextDay(); G->save(); }
             if (e.key.keysym.sym == SDLK_s) { G->save(); }
@@ -475,22 +462,23 @@ static void em_frame(void*) {
         }
     }
 
-    // one frame of game
-    if (G) G->step();
+    // draw one frame
+    G->step();
 }
 
 void Game::run() {
 #ifdef __EMSCRIPTEN__
-    // Browser / iPhone path:
+    // Browser (iPhone/Safari/WebAssembly) path
     emscripten_set_main_loop_arg(em_frame, nullptr, 0, 1);
 #else
-    // Desktop fallback path:
+    // Desktop fallback
     bool running = true;
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) running = false;
-            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+            if (e.type == SDL_MOUSEBUTTONDOWN &&
+                e.button.button == SDL_BUTTON_LEFT) {
                 click(e.button.x, e.button.y);
             }
             if (e.type == SDL_KEYDOWN) {
@@ -500,7 +488,6 @@ void Game::run() {
                 if (e.key.keysym.sym == SDLK_l) { load(); }
             }
         }
-
         step();
         SDL_Delay(16);
     }
